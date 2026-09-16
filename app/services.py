@@ -6,7 +6,20 @@ from app.models import Priority, Ticket, TicketStatus
 
 SLA_BY_PRIORITY = {
     Priority.URGENT: timedelta(hours=2),
+    Priority.HIGH: timedelta(hours=8),
     Priority.NORMAL: timedelta(hours=24),
+}
+
+PRIORITY_RANK = {
+    Priority.URGENT: 0,
+    Priority.HIGH: 1,
+    Priority.NORMAL: 2,
+}
+
+NEXT_PRIORITY = {
+    Priority.NORMAL: Priority.HIGH,
+    Priority.HIGH: Priority.URGENT,
+    Priority.URGENT: Priority.URGENT,
 }
 
 
@@ -32,9 +45,20 @@ def is_overdue(ticket: Ticket, now: datetime) -> bool:
     )
 
 
+def escalate_overdue_tickets(tickets: list[Ticket], now: datetime) -> list[Ticket]:
+    """Escalate each eligible ticket by one priority level for this run."""
+    request_time = ensure_utc(now)
+    escalated: list[Ticket] = []
+    for ticket in tickets:
+        if is_overdue(ticket, request_time) and ticket.priority is not Priority.URGENT:
+            ticket.priority = NEXT_PRIORITY[ticket.priority]
+            escalated.append(ticket)
+    return escalated
+
+
 def queue_sort_key(ticket: Ticket, now: datetime) -> tuple[int, int, datetime, datetime, int]:
     overdue_rank = 0 if is_overdue(ticket, now) else 1
-    priority_rank = 0 if ticket.priority is Priority.URGENT else 1
+    priority_rank = PRIORITY_RANK[ticket.priority]
     return (
         overdue_rank,
         priority_rank,

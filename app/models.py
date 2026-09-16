@@ -28,6 +28,7 @@ class UTCDateTime(TypeDecorator[datetime]):
 
 class Priority(StrEnum):
     URGENT = "urgent"
+    HIGH = "high"
     NORMAL = "normal"
 
 

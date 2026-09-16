@@ -1,4 +1,4 @@
-export type Priority = "urgent" | "normal";
+export type Priority = "urgent" | "high" | "normal";
 export type TicketStatus = "open" | "in_progress" | "resolved" | "closed";
 
 export interface Ticket {

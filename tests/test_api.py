@@ -63,6 +63,15 @@ def test_create_and_get_ticket(client: TestClient) -> None:
     assert response.json() == created
 
 
+def test_high_priority_is_valid_and_gets_eight_hour_default_sla(client: TestClient) -> None:
+    created = create_ticket(client, priority="high")
+
+    assert created["priority"] == "high"
+    assert datetime.fromisoformat(created["due_at"]) - datetime.fromisoformat(
+        created["created_at"]
+    ) == timedelta(hours=8)
+
+
 def test_update_ticket_changes_fields_and_updated_at(client: TestClient) -> None:
     created = create_ticket(client)
 
@@ -76,6 +85,16 @@ def test_update_ticket_changes_fields_and_updated_at(client: TestClient) -> None
     assert updated["subject"] == "Password reset"
     assert updated["status"] == "in_progress"
     assert updated["updated_at"] >= created["updated_at"]
+
+
+def test_priority_update_preserves_agreed_due_at(client: TestClient) -> None:
+    created = create_ticket(client, due_at="2020-01-01T00:00:00Z")
+
+    response = client.patch(f"/tickets/{created['id']}", json={"priority": "high"})
+
+    assert response.status_code == 200
+    assert response.json()["priority"] == "high"
+    assert response.json()["due_at"] == created["due_at"]
 
 
 def test_assign_ticket_and_list_agents(client: TestClient) -> None:
@@ -134,6 +153,53 @@ def test_queue_ordering_and_active_status_filter(client: TestClient) -> None:
         "Future normal",
     ]
     assert response.json()["total"] == 3
+
+
+def test_queue_orders_urgent_before_high_before_normal(client: TestClient) -> None:
+    for priority in ("normal", "high", "urgent"):
+        create_ticket(client, priority=priority, due_at="2020-01-01T00:00:00Z")
+
+    response = client.get("/tickets/queue")
+
+    assert [item["priority"] for item in response.json()["items"]] == [
+        "urgent",
+        "high",
+        "normal",
+    ]
+
+
+def test_escalation_endpoint_progresses_one_level_per_run(client: TestClient) -> None:
+    normal = create_ticket(client, priority="normal", due_at="2020-01-01T00:00:00Z")
+    high = create_ticket(client, priority="high", due_at="2020-01-01T00:00:00Z")
+    urgent = create_ticket(client, priority="urgent", due_at="2020-01-01T00:00:00Z")
+    current = create_ticket(client, priority="normal", due_at="2099-01-01T00:00:00Z")
+    resolved = create_ticket(
+        client, priority="normal", status="resolved", due_at="2020-01-01T00:00:00Z"
+    )
+    closed = create_ticket(
+        client, priority="normal", status="closed", due_at="2020-01-01T00:00:00Z"
+    )
+
+    first = client.post("/tickets/escalate")
+    assert first.status_code == 200
+    assert first.json()["ticket_ids"] == [normal["id"], high["id"]]
+    assert first.json()["escalated_count"] == 2
+    assert client.get(f"/tickets/{normal['id']}").json()["priority"] == "high"
+    assert client.get(f"/tickets/{high['id']}").json()["priority"] == "urgent"
+    assert client.get(f"/tickets/{urgent['id']}").json()["priority"] == "urgent"
+    assert client.get(f"/tickets/{current['id']}").json()["priority"] == "normal"
+    assert client.get(f"/tickets/{resolved['id']}").json()["priority"] == "normal"
+    assert client.get(f"/tickets/{closed['id']}").json()["priority"] == "normal"
+
+    second = client.post("/tickets/escalate")
+    assert second.json()["ticket_ids"] == [normal["id"]]
+    assert client.get(f"/tickets/{normal['id']}").json()["priority"] == "urgent"
+    assert client.get(f"/tickets/{normal['id']}").json()["due_at"] == normal["due_at"]
+
+    assert client.post("/tickets/escalate").json() == {
+        "escalated_count": 0,
+        "ticket_ids": [],
+    }
 
 
 def test_queue_overdue_filter(client: TestClient) -> None:

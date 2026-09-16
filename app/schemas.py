@@ -72,3 +72,8 @@ class TicketPage(BaseModel):
     page: int
     page_size: int
     total: int
+
+
+class EscalationResult(BaseModel):
+    escalated_count: int
+    ticket_ids: list[int]

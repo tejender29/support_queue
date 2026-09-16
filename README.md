@@ -79,10 +79,11 @@ The tests use isolated in-memory SQLite databases and do not modify the developm
 
 ### Tickets and agents
 
-- `POST /tickets` creates a ticket. Required fields are `subject`, `customer_name`, and `priority` (`urgent` or `normal`). Optional fields include `description`, `status`, `assigned_to`, and timezone-aware `due_at`. If `due_at` is omitted, it is calculated from the priority SLA.
+- `POST /tickets` creates a ticket. Required fields are `subject`, `customer_name`, and `priority` (`normal`, `high`, or `urgent`). Optional fields include `description`, `status`, `assigned_to`, and timezone-aware `due_at`. If `due_at` is omitted, it is calculated from the priority SLA.
 - `GET /tickets/{ticket_id}` retrieves a ticket and returns `404` if it does not exist.
 - `PATCH /tickets/{ticket_id}` updates supplied fields and validates priority and status values.
 - `POST /tickets/{ticket_id}/assign` assigns an existing agent with `{"agent_id": 1}`.
+- `POST /tickets/escalate` runs one escalation check and returns the IDs escalated during that run.
 - `POST /agents` creates an agent with `{"name": "Alex Agent"}`.
 - `GET /agents` lists agents in ID order.
 
@@ -99,12 +100,14 @@ The tests use isolated in-memory SQLite databases and do not modify the developm
 Filters are applied before sorting and pagination. Queue ordering is:
 
 1. Overdue open/in-progress tickets first.
-2. Urgent before normal within each bucket.
+2. Urgent, then high, then normal within each bucket.
 3. Earlier `due_at` first.
 4. Earlier `created_at` first.
 5. Lower ticket ID as the deterministic final tie-breaker.
 
 An active ticket is overdue only when `due_at < current UTC time`; `due_at == now` is not overdue. Resolved and closed tickets are excluded from the active queue.
+
+The automatic response-time SLAs are 24 hours for normal, 8 hours for high, and 2 hours for urgent tickets when a deadline is calculated automatically. `POST /tickets/escalate` escalates every breached open/in-progress ticket by exactly one level: normal to high, or high to urgent. Urgent tickets do not escalate further. Repeating the check progresses tickets one level per run and preserves each ticket's original `due_at`.
 
 Example:
 
@@ -118,7 +121,7 @@ curl 'http://127.0.0.1:8000/tickets/queue?overdue=false&customer=acme&page=1&pag
 
 ## Frontend dashboard
 
-The React dashboard displays the queue in the exact order returned by the backend. It supports overdue, assignee, customer, page, and page-size filters; ticket creation; assignment to existing agents; ticket details; loading, empty, error, success, and responsive states.
+The React dashboard displays the queue in the exact order returned by the backend. It supports normal, high, and urgent priorities; overdue, assignee, customer, page, and page-size filters; ticket creation; assignment to existing agents; ticket details; loading, empty, error, success, and responsive states.
 
 Start the backend first, then use a second terminal:
 

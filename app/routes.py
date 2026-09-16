@@ -9,12 +9,20 @@ from app.schemas import (
     AgentCreate,
     AgentRead,
     AssignmentRequest,
+    EscalationResult,
     TicketCreate,
     TicketPage,
     TicketRead,
     TicketUpdate,
 )
-from app.services import calculate_due_at, ensure_utc, is_overdue, order_tickets, utc_now
+from app.services import (
+    calculate_due_at,
+    ensure_utc,
+    escalate_overdue_tickets,
+    is_overdue,
+    order_tickets,
+    utc_now,
+)
 
 router = APIRouter()
 
@@ -113,6 +121,26 @@ def ticket_queue(
     )
 
 
+@router.post("/tickets/escalate", response_model=EscalationResult)
+def escalate_tickets(db: Session = Depends(get_db)) -> EscalationResult:
+    tickets = list(
+        db.scalars(
+            select(Ticket).where(
+                Ticket.status.in_((TicketStatus.OPEN, TicketStatus.IN_PROGRESS))
+            )
+        )
+    )
+    now = utc_now()
+    escalated = escalate_overdue_tickets(tickets, now)
+    for ticket in escalated:
+        ticket.updated_at = now
+    db.commit()
+    return EscalationResult(
+        escalated_count=len(escalated),
+        ticket_ids=[ticket.id for ticket in escalated],
+    )
+
+
 @router.get("/tickets/{ticket_id}", response_model=TicketRead)
 def get_ticket(ticket_id: int, db: Session = Depends(get_db)) -> TicketRead:
     return ticket_response(get_ticket_or_404(ticket_id, db))
@@ -124,7 +152,6 @@ def update_ticket(
 ) -> TicketRead:
     ticket = get_ticket_or_404(ticket_id, db)
     changes = payload.model_dump(exclude_unset=True)
-    priority_changed = "priority" in changes and changes["priority"] != ticket.priority
 
     if "subject" in changes:
         ticket.title = changes["subject"]
@@ -142,8 +169,6 @@ def update_ticket(
         if changes["due_at"] is None:
             raise HTTPException(status_code=422, detail="due_at cannot be null")
         ticket.due_at = ensure_utc(changes["due_at"])
-    elif priority_changed:
-        ticket.due_at = calculate_due_at(ticket.created_at, ticket.priority)
     ticket.updated_at = utc_now()
     db.commit()
     db.refresh(ticket)

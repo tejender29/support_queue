@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from app.models import Priority, Ticket, TicketStatus
-from app.services import calculate_due_at, is_overdue, order_tickets
+from app.services import calculate_due_at, escalate_overdue_tickets, is_overdue, order_tickets
 
 UTC = timezone.utc
 NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
@@ -46,6 +46,16 @@ def test_urgent_precedes_normal_within_each_bucket() -> None:
     assert [item.id for item in order_tickets(tickets, NOW)] == [2, 1, 4, 3]
 
 
+def test_queue_priority_order_is_urgent_high_then_normal() -> None:
+    tickets = [
+        ticket(1, priority=Priority.NORMAL, due_at=NOW - timedelta(minutes=1), created_at=NOW),
+        ticket(2, priority=Priority.HIGH, due_at=NOW - timedelta(minutes=1), created_at=NOW),
+        ticket(3, priority=Priority.URGENT, due_at=NOW - timedelta(minutes=1), created_at=NOW),
+    ]
+
+    assert [item.id for item in order_tickets(tickets, NOW)] == [3, 2, 1]
+
+
 def test_earliest_due_at_breaks_priority_ties() -> None:
     tickets = [
         ticket(1, due_at=NOW + timedelta(hours=2), created_at=NOW),
@@ -79,6 +89,44 @@ def test_ticket_is_overdue_just_after_due_at() -> None:
 
     assert is_overdue(item, NOW) is False
     assert is_overdue(item, NOW + timedelta(microseconds=1)) is True
+
+
+def test_escalation_raises_each_eligible_ticket_by_one_level() -> None:
+    tickets = [
+        ticket(1, priority=Priority.NORMAL, due_at=NOW - timedelta(minutes=1), created_at=NOW),
+        ticket(2, priority=Priority.HIGH, due_at=NOW - timedelta(minutes=1), created_at=NOW),
+        ticket(3, priority=Priority.URGENT, due_at=NOW - timedelta(minutes=1), created_at=NOW),
+    ]
+
+    escalated = escalate_overdue_tickets(tickets, NOW)
+
+    assert [item.id for item in escalated] == [1, 2]
+    assert [item.priority for item in tickets] == [Priority.HIGH, Priority.URGENT, Priority.URGENT]
+
+
+def test_escalation_does_not_change_non_breached_or_inactive_tickets() -> None:
+    due_at = NOW
+    tickets = [
+        ticket(1, due_at=due_at, created_at=NOW),
+        ticket(2, due_at=NOW - timedelta(minutes=1), status=TicketStatus.RESOLVED, created_at=NOW),
+        ticket(3, due_at=NOW - timedelta(minutes=1), status=TicketStatus.CLOSED, created_at=NOW),
+    ]
+
+    assert escalate_overdue_tickets(tickets, NOW) == []
+    assert [item.priority for item in tickets] == [Priority.NORMAL] * 3
+
+
+def test_repeated_escalation_runs_progress_one_level_and_preserve_due_at() -> None:
+    due_at = NOW - timedelta(minutes=1)
+    item = ticket(1, due_at=due_at, created_at=NOW)
+
+    assert [item.id for item in escalate_overdue_tickets([item], NOW)] == [1]
+    assert item.priority is Priority.HIGH
+    assert item.due_at == due_at
+    assert [item.id for item in escalate_overdue_tickets([item], NOW)] == [1]
+    assert item.priority is Priority.URGENT
+    assert item.due_at == due_at
+    assert escalate_overdue_tickets([item], NOW) == []
 
 
 def test_same_due_and_created_times_use_id_for_deterministic_ordering() -> None:
