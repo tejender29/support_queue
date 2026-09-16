@@ -797,3 +797,83 @@ At the end report:
 - any remaining issues
 
 Do not implement unrelated features.
+
+### student 
+The Twist implementation is mostly complete, but I noticed one documentation issue.
+
+You reported that REASONING.md was not modified. The Twist introduces important new design decisions, so REASONING.md must be updated.
+
+Please update ONLY the documentation needed for the Twist.
+
+REASONING.md must clearly document:
+
+1. Three priority levels:
+   normal → high → urgent
+
+2. Escalation behavior:
+   - breached normal → high
+   - breached high → urgent
+   - breached urgent → remains urgent
+   - exactly one level per escalation run
+   - no priority skipping
+
+3. Eligibility:
+   - only open/in-progress tickets
+   - overdue/breached tickets only
+   - resolved/closed tickets ignored
+
+4. Due date:
+   - original due_at is preserved
+   - priority escalation does not reset the agreed response deadline
+
+5. High-priority SLA:
+   - The original problem specifies urgent = 2 hours and normal = 1 day.
+   - High SLA was not specified.
+   - Clearly document 8 hours as an explicit implementation assumption and why it was chosen.
+   - Do not pretend 8 hours came from the original requirements.
+
+6. Escalation mechanism:
+   - explain POST /tickets/escalate
+   - explain that one invocation performs one escalation step
+   - explain how repeated runs progressively move normal → high → urgent
+
+7. Queue ordering:
+   overdue → urgent → high → normal → due_at → created_at → ticket ID
+
+8. Testing strategy:
+   briefly mention the new escalation test coverage.
+
+Do NOT change application code.
+Do NOT change AI_LOGS.md.
+Do NOT fabricate or add AI conversation transcripts.
+
+After updating REASONING.md:
+- run git diff --check
+- report exactly what changed.
+
+Do NOT commit or push. ye rhq prompt]
+
+## AI 
+Updated only REASONING.md.
+
+Documented:
+
+Priority levels: normal → high → urgent
+One-level escalation behavior and no skipping
+Eligibility for open/in-progress breached tickets only
+Resolved/closed ticket exclusion
+Preservation of the original due_at
+Original SLAs: urgent 2 hours, normal 1 day
+High SLA as an explicit 8-hour implementation assumption
+POST /tickets/escalate behavior
+Progressive repeated escalation runs
+Queue ordering through ticket ID tie-breaker
+Twist escalation test coverage
+
+Validation:
+
+git diff --check was run.
+It reports an existing trailing-space issue in untouched AI_LOGS.md at line 625.
+git diff --check -- REASONING.md passes.
+AI_LOGS.md was not modified.
+No application code was changed.
